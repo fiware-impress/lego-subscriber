@@ -9,6 +9,7 @@ require (
 
 require (
 	github.com/gorilla/websocket v1.4.2 // indirect
-	golang.org/x/net v0.0.0-20200425230154-ff2c4b7c35a0 // indirect
-	golang.org/x/sys v0.0.0-20200323222414-85ca7c5b95cd // indirect
+	github.com/stretchr/testify v1.4.0 // indirect
+	golang.org/x/net v0.0.0-20200822124328-c89045814202 // indirect
+	golang.org/x/sys v0.0.0-20200803210538-64077c9b5642 // indirect
 )

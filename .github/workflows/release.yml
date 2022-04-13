@@ -1,0 +1,32 @@
+name: Release image
+
+on:
+  push:
+
+jobs:
+  
+  push-to-quay:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Build Image
+        id: build-image
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: lego-subscriber
+          tags: latest ${{ github.sha }} ${{needs.generate-version.outputs.version}}
+          dockerfiles: |
+            ./Dockerfile
+          context: ./
+
+      - name: Push To quay.io
+        id: push-to-quay
+        uses: redhat-actions/push-to-registry@v2
+        with:
+          image: ${{ steps.build-image.outputs.image }}
+          tags: ${{ steps.build-image.outputs.tags }}
+          registry: quay.io/wi_stefan
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
 	"strconv"
 	"time"
+
+	"net/http"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/sirupsen/logrus"
@@ -20,11 +24,125 @@ var mqttUser string = ""
 var mqttPassword string = ""
 var ngsiLdHost string = "localhost"
 var ngsiLdPort int = 1026
+var ngsiLdUrl string
+var craneId string = "urn:ngsi-ld:crane:lego-crane"
 
 var mqttClient mqtt.Client
 
+// Interface to the http-client
+type httpClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+/**
+* Global http client
+ */
+var globalHttpClient httpClient = &http.Client{}
+
+type WeightMessage struct {
+	Weight float32 `json:"weight"`
+}
+
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
 	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
+
+	var weightMessage WeightMessage
+	err := json.Unmarshal(msg.Payload(), &weightMessage)
+	if err != nil {
+		logger.Warn("Was unable to unmarshal mqtt message. E: %v", err)
+		return
+	}
+	logger.Infof("Weight %v", weightMessage)
+	var active bool
+	if weightMessage.Weight > 0 {
+		active = true
+	}
+
+	timeNow := time.Now().Format("2006-01-02T15:04:05.002Z")
+	locationProperty := `"location": {"type": "GeoProperty", "value": { "type": "Point", "coordinates": [51.24752,13.87789]}}`
+	softwareVersionProperty := getStringAsPropertyJson("softwareVersion", "0.0.1", timeNow)
+	activeProperty := getBooleanAsPropertyJson("active", active, timeNow)
+	maxHookHeightProperty := getNumberAsPropertyJson("maxHookHeight", 130.0, timeNow)
+	maxLiftingWeightProperty := getNumberAsPropertyJson("maxLiftingWeight", 8000.0, timeNow)
+	maxPayloadProperty := getNumberAsPropertyJson("maxPayload", 8000.0, timeNow)
+	modelProperty := getStringAsPropertyJson("model", "Euro SSG 130", timeNow)
+	// we cut everything after comma for easier handling
+	currentWeightProperty := getNumberAsPropertyJson("currentWeight", int(weightMessage.Weight), timeNow)
+	inUseProperty := getBooleanAsPropertyJson("inUse", active, timeNow)
+
+	entityString := fmt.Sprintf(`{
+	"id": "%v",
+	"type": "crane",
+	"generalInformation": {
+        "type": "Property",
+		"value": {
+			%v,
+			%v,
+			%v,
+			%v,
+			%v,
+			%v,
+			%v,
+			%v
+		}
+	},
+	%v,
+	%v
+	}`, craneId,
+		locationProperty,
+		softwareVersionProperty,
+		activeProperty,
+		maxHookHeightProperty,
+		maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, inUseProperty, currentWeightProperty)
+
+	entity := []byte(entityString)
+
+	req, _ := http.NewRequest("POST", ngsiLdUrl+"/entities", bytes.NewBuffer(entity))
+	req.Header.Set("NGSILD-Tenant", "impress")
+	req.Header.Set("Content-Type", "application/json")
+
+	response, err := globalHttpClient.Do(req)
+	if err != nil {
+		logger.Warnf("Error: %v", err)
+		return
+	}
+
+	if response.StatusCode == 409 {
+		entityFragment := []byte(fmt.Sprintf(`{
+			"generalInformation": {
+				"type": "Property",
+				"value": {
+					%v,
+					%v,
+					%v,
+					%v,
+					%v,
+					%v,
+					%v,
+					%v
+				}
+			},
+			%v,
+			%v
+			}`,
+			locationProperty,
+			softwareVersionProperty,
+			activeProperty,
+			maxHookHeightProperty,
+			maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, inUseProperty, currentWeightProperty))
+
+		req, _ := http.NewRequest("POST", ngsiLdUrl+"/entities/"+craneId+"/attrs/", bytes.NewBuffer(entityFragment))
+		req.Header.Set("NGSILD-Tenant", "impress")
+		req.Header.Set("Content-Type", "application/json")
+		response, err = globalHttpClient.Do(req)
+		if err != nil {
+			logger.Warnf("Was not able to update. %v", err)
+		} else {
+			logger.Infof("Update response: %v", response)
+		}
+	} else {
+		logger.Infof("Creation response: %v", response)
+	}
 
 }
 
@@ -36,7 +154,33 @@ var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err
 	fmt.Printf("Connect lost: %v", err)
 }
 
+func getStringAsPropertyJson(name string, a string, t string) string {
+	return fmt.Sprintf(`%q: {
+		"type": "Property",
+		"value": %q,
+		"observedAt": %q
+	}`, name, a, t)
+}
+
+func getNumberAsPropertyJson(name string, a int, t string) string {
+	return fmt.Sprintf(`%q: {
+		"type": "Property",
+		"value": %d,
+		"observedAt": %q
+	}`, name, a, t)
+}
+
+func getBooleanAsPropertyJson(name string, a bool, t string) string {
+	return fmt.Sprintf(`%q: {
+		"type": "Property",
+		"value": %t,
+		"observedAt": %q
+	}`, name, a, t)
+}
+
 func main() {
+
+	devGeneratorEnabled := os.Getenv("DEV_GENERATOR_ENABLED")
 
 	mqttHostEnv := os.Getenv("MQTT_HOST")
 	mqttPortEnv := os.Getenv("MQTT_PORT")
@@ -46,6 +190,13 @@ func main() {
 
 	ngsiLdHostEnv := os.Getenv("NGSI_LD_HOST")
 	ngsiLdPortEnv := os.Getenv("NGSI_LD_PORT")
+
+	craneIdEnv := os.Getenv("CRANE_ID")
+
+	if craneIdEnv != "" {
+		logger.Infof("Setting the crane id to %v", craneIdEnv)
+		craneId = craneIdEnv
+	}
 
 	if mqttUserEnv != "" {
 		logger.Infof("Authorizing as user %v to the mqtt-broker.", mqttUserEnv)
@@ -88,6 +239,8 @@ func main() {
 		}
 	}
 
+	ngsiLdUrl = fmt.Sprintf("http://%v:%v/ngsi-ld/v1", ngsiLdHost, ngsiLdPort)
+
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", mqttHost, mqttPort))
 	opts.SetClientID("go_mqtt_client")
@@ -105,7 +258,15 @@ func main() {
 	}
 
 	sub(mqttClient)
-	simulateCrane(mqttClient)
+
+	// run the crane simulator internally
+	if devGeneratorEnabled != "" {
+		enabled, err := strconv.ParseBool(devGeneratorEnabled)
+		if err == nil && enabled {
+			simulateCrane(mqttClient)
+		}
+	}
+
 }
 
 func sub(client mqtt.Client) {
