@@ -73,6 +73,10 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 	entityString := fmt.Sprintf(`{
 	"id": "%v",
 	"type": "crane",
+	"healthState": {
+		"type": "Property",
+		"value": "HEALTHY"
+	}
 	"generalInformation": {
         "type": "Property",
 		"value": {
