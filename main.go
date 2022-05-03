@@ -59,7 +59,7 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 	}
 
 	timeNow := time.Now().Format("2006-01-02T15:04:05.002Z")
-	locationProperty := `"location": {"type": "GeoProperty", "value": { "type": "Point", "coordinates": [51.24752,13.87789]}}`
+	locationProperty := `"location": {"type": "GeoProperty", "value": { "type": "Point", "coordinates": [5,5]}}`
 	softwareVersionProperty := getStringAsPropertyJson("softwareVersion", "0.0.1", timeNow)
 	activeProperty := getBooleanAsPropertyJson("active", active, timeNow)
 	maxHookHeightProperty := getNumberAsPropertyJson("maxHookHeight", 130.0, timeNow)
@@ -69,18 +69,27 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 	// we cut everything after comma for easier handling
 	currentWeightProperty := getNumberAsPropertyJson("currentWeight", int(weightMessage.Weight), timeNow)
 	inUseProperty := getBooleanAsPropertyJson("inUse", active, timeNow)
+	currentConsumption := getNumberAsPropertyJson("currentConsumption", int(rand.Float32()*100), timeNow)
 
 	entityString := fmt.Sprintf(`{
 	"id": "%v",
 	"type": "crane",
+	%v,
+	"model": {
+		"type": "Property",
+		"value": "Lego Crane"
+	},
 	"healthState": {
 		"type": "Property",
 		"value": "HEALTHY"
-	}
+	},
+	"currentCost": {
+		"type": "Property",
+		"value": 40.2
+	},
 	"generalInformation": {
         "type": "Property",
 		"value": {
-			%v,
 			%v,
 			%v,
 			%v,
@@ -91,16 +100,16 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 		}
 	},
 	%v,
+	%v,
 	%v
 	}`, craneId,
 		locationProperty,
 		softwareVersionProperty,
 		activeProperty,
 		maxHookHeightProperty,
-		maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, inUseProperty, currentWeightProperty)
+		maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, inUseProperty, currentWeightProperty, currentConsumption)
 
 	entity := []byte(entityString)
-
 	req, _ := http.NewRequest("POST", ngsiLdUrl+"/entities", bytes.NewBuffer(entity))
 	req.Header.Set("NGSILD-Tenant", "impress")
 	req.Header.Set("Content-Type", "application/json")
@@ -113,10 +122,10 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 
 	if response.StatusCode == 409 {
 		entityFragment := []byte(fmt.Sprintf(`{
+			%v,
 			"generalInformation": {
 				"type": "Property",
 				"value": {
-					%v,
 					%v,
 					%v,
 					%v,
@@ -127,13 +136,14 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 				}
 			},
 			%v,
+			%v,
 			%v
 			}`,
 			locationProperty,
 			softwareVersionProperty,
 			activeProperty,
 			maxHookHeightProperty,
-			maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, inUseProperty, currentWeightProperty))
+			maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, inUseProperty, currentWeightProperty, currentConsumption))
 
 		req, _ := http.NewRequest("POST", ngsiLdUrl+"/entities/"+craneId+"/attrs/", bytes.NewBuffer(entityFragment))
 		req.Header.Set("NGSILD-Tenant", "impress")
