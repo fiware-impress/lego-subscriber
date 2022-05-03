@@ -40,22 +40,62 @@ type httpClient interface {
 var globalHttpClient httpClient = &http.Client{}
 
 type WeightMessage struct {
-	Weight float32 `json:"weight"`
+	Weight JSONFloat `json:"weight"`
+}
+
+type JSONFloat struct {
+	Value float32
+	Valid bool
+	Set   bool
+}
+
+func (i *JSONFloat) UnmarshalJSON(data []byte) error {
+	// If this method was called, the value was set.
+	i.Set = true
+
+	if string(data) == "null" {
+		// The key was set to null
+		i.Valid = false
+		return nil
+	}
+
+	// The key isn't set to null
+	var temp float32
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+	i.Value = temp
+	i.Valid = true
+	return nil
 }
 
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
 	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
 
 	var weightMessage WeightMessage
+	logger.Infof(fmt.Sprint(msg.Payload()))
 	err := json.Unmarshal(msg.Payload(), &weightMessage)
 	if err != nil {
 		logger.Warn("Was unable to unmarshal mqtt message. E: %v", err)
 		return
 	}
-	logger.Infof("Weight %v", weightMessage)
+	if weightMessage.Weight.Set && weightMessage.Weight.Valid {
+		logger.Infof("Weight %v", weightMessage)
+	} else {
+		logger.Info("Message is not weight")
+		return
+	}
 	var active bool
-	if weightMessage.Weight > 0 {
+
+	if weightMessage.Weight.Value > 0 {
 		active = true
+	}
+
+	invoiceTrigger := rand.Float32()
+	if invoiceTrigger > 0.95 {
+		logger.Warn("++++++++++++++++++++++++++++++++++++++++++++++++++++++++Trigger invoice")
+		// in order for the invoice to be generated from time to time, we set the weight to a value that triggers it.
+		weightMessage.Weight.Value = 25
 	}
 
 	timeNow := time.Now().Format("2006-01-02T15:04:05.002Z")
@@ -67,7 +107,7 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 	maxPayloadProperty := getNumberAsPropertyJson("maxPayload", 8000.0, timeNow)
 	modelProperty := getStringAsPropertyJson("model", "Euro SSG 130", timeNow)
 	// we cut everything after comma for easier handling
-	currentWeightProperty := getNumberAsPropertyJson("currentWeight", int(weightMessage.Weight), timeNow)
+	currentWeightProperty := getNumberAsPropertyJson("currentWeight", int(weightMessage.Weight.Value*1000), timeNow)
 	inUseProperty := getBooleanAsPropertyJson("inUse", active, timeNow)
 	currentConsumption := getNumberAsPropertyJson("currentConsumption", int(rand.Float32()*100), timeNow)
 
@@ -271,8 +311,6 @@ func main() {
 		panic(token.Error())
 	}
 
-	sub(mqttClient)
-
 	// run the crane simulator internally
 	if devGeneratorEnabled != "" {
 		enabled, err := strconv.ParseBool(devGeneratorEnabled)
@@ -281,18 +319,22 @@ func main() {
 		}
 	}
 
-}
-
-func sub(client mqtt.Client) {
 	topic := topic
-	token := client.Subscribe(topic, 1, nil)
+	token := mqttClient.Subscribe(topic, 1, nil)
 	token.Wait()
+	if token.Error() != nil {
+		fmt.Print(token.Error().Error())
+	}
 	fmt.Printf("Subscribed to topic: %s", topic)
+	for {
+		fmt.Printf("Wait")
+		time.Sleep(time.Second)
+	}
 }
 
 func simulateCrane(client mqtt.Client) {
 	for {
-		weight := rand.Float32() * 1000
+		weight := rand.Float32()
 		text := fmt.Sprintf(`{"weight": %v}`, weight)
 		token := client.Publish(topic, 0, false, text)
 		token.Wait()
