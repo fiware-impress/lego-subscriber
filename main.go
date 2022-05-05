@@ -103,8 +103,9 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 	softwareVersionProperty := getStringAsPropertyJson("softwareVersion", "0.0.1", timeNow)
 	activeProperty := getBooleanAsPropertyJson("active", active, timeNow)
 	maxHookHeightProperty := getNumberAsPropertyJson("maxHookHeight", 130.0, timeNow)
-	maxLiftingWeightProperty := getNumberAsPropertyJson("maxLiftingWeight", 8000.0, timeNow)
-	maxPayloadProperty := getNumberAsPropertyJson("maxPayload", 8000.0, timeNow)
+	maxLiftingWeightProperty := getNumberAsPropertyJson("maxLiftingWeight", 25000.0, timeNow)
+	maxPayloadProperty := getNumberAsPropertyJson("maxPayload", 25000.0, timeNow)
+	payLoadAtTip := getNumberAsPropertyJson("payLoadAtTip", 15000.0, timeNow)
 	modelProperty := getStringAsPropertyJson("model", "Euro SSG 130", timeNow)
 	// we cut everything after comma for easier handling
 	currentWeightProperty := getNumberAsPropertyJson("currentWeight", int(weightMessage.Weight.Value*1000), timeNow)
@@ -136,6 +137,7 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 			%v,
 			%v,
 			%v,
+			%v,
 			%v
 		}
 	},
@@ -147,7 +149,7 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 		softwareVersionProperty,
 		activeProperty,
 		maxHookHeightProperty,
-		maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, inUseProperty, currentWeightProperty, currentConsumption)
+		maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, payLoadAtTip, inUseProperty, currentWeightProperty, currentConsumption)
 
 	entity := []byte(entityString)
 	req, _ := http.NewRequest("POST", ngsiLdUrl+"/entities", bytes.NewBuffer(entity))
