@@ -106,6 +106,7 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 	maxLiftingWeightProperty := getNumberAsPropertyJson("maxLiftingWeight", 25000.0, timeNow)
 	maxPayloadProperty := getNumberAsPropertyJson("maxPayload", 25000.0, timeNow)
 	payLoadAtTip := getNumberAsPropertyJson("payLoadAtTip", 15000.0, timeNow)
+	maxRadius := getNumberAsPropertyJson("maxRadius", 100.0, timeNow)
 	modelProperty := getStringAsPropertyJson("model", "Euro SSG 130", timeNow)
 	// we cut everything after comma for easier handling
 	currentWeightProperty := getNumberAsPropertyJson("currentWeight", int(weightMessage.Weight.Value*1000), timeNow)
@@ -138,6 +139,7 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 			%v,
 			%v,
 			%v,
+			%v,
 			%v
 		}
 	},
@@ -149,7 +151,7 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 		softwareVersionProperty,
 		activeProperty,
 		maxHookHeightProperty,
-		maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, payLoadAtTip, inUseProperty, currentWeightProperty, currentConsumption)
+		maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, payLoadAtTip, maxRadius, inUseProperty, currentWeightProperty, currentConsumption)
 
 	entity := []byte(entityString)
 	req, _ := http.NewRequest("POST", ngsiLdUrl+"/entities", bytes.NewBuffer(entity))
@@ -174,6 +176,8 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 					%v,
 					%v,
 					%v,
+					%v,
+					%v,
 					%v
 				}
 			},
@@ -185,7 +189,7 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 			softwareVersionProperty,
 			activeProperty,
 			maxHookHeightProperty,
-			maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, inUseProperty, currentWeightProperty, currentConsumption))
+			maxLiftingWeightProperty, maxPayloadProperty, modelProperty, currentWeightProperty, payLoadAtTip, maxRadius, inUseProperty, currentWeightProperty, currentConsumption))
 
 		req, _ := http.NewRequest("POST", ngsiLdUrl+"/entities/"+craneId+"/attrs/", bytes.NewBuffer(entityFragment))
 		req.Header.Set("NGSILD-Tenant", "impress")
@@ -313,23 +317,24 @@ func main() {
 		panic(token.Error())
 	}
 
+	topic := topic
+	token := mqttClient.Subscribe(topic, 1, nil)
+	token.Wait()
+	if token.Error() != nil {
+		logger.Info(fmt.Print(token.Error().Error()))
+	}
 	// run the crane simulator internally
 	if devGeneratorEnabled != "" {
+		logger.Info("Simulater enabled")
 		enabled, err := strconv.ParseBool(devGeneratorEnabled)
 		if err == nil && enabled {
 			simulateCrane(mqttClient)
 		}
 	}
 
-	topic := topic
-	token := mqttClient.Subscribe(topic, 1, nil)
-	token.Wait()
-	if token.Error() != nil {
-		fmt.Print(token.Error().Error())
-	}
 	fmt.Printf("Subscribed to topic: %s", topic)
 	for {
-		fmt.Printf("Wait")
+		logger.Info("Wait")
 		time.Sleep(time.Second)
 	}
 }
@@ -337,6 +342,7 @@ func main() {
 func simulateCrane(client mqtt.Client) {
 	for {
 		weight := rand.Float32()
+		logger.Info("Simulate")
 		text := fmt.Sprintf(`{"weight": %v}`, weight)
 		token := client.Publish(topic, 0, false, text)
 		token.Wait()
